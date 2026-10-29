@@ -103,29 +103,38 @@ namespace Hooks
 				if (!actor || Extras::IsExcluded(actor) || actor->GetSkin() == armor) {
 					return original(addon, armor, bipedPtr, a4);
 				}
-				auto third = actor->GetBiped1(false).get();
-				if (biped != third && biped != actor->GetBiped1(true).get()) {
+				if (biped != actor->GetBiped1(false).get() && biped != actor->GetBiped1(true).get()) {
+					return original(addon, armor, bipedPtr, a4);
+				}
+				// The first armor in a slot stays on the main biped so the game and other plugins see it;
+				// only conflicting ones move to an extra.
+				if (SlotsFree(biped, addon)) {
 					return original(addon, armor, bipedPtr, a4);
 				}
 
-				// Lookups go through the third person biped on purpose: the player's first person
-				// biped only gets its own extra when third person has none for this armor.
 				auto extra = Extras::Find(biped, armor->formID);
-				if (Extras::Find(third, armor->formID)) {
-					if (extra && !extra->root) {
-						Extras::Destroy(extra);
-						extra = Extras::Create(actor, biped, armor->formID);
-					}
-				} else if (!extra) {
-					extra = Extras::Create(actor, biped, armor->formID);
+				if (extra && !extra->root) {
+					Extras::Destroy(extra);
+					extra = nullptr;
 				}
 				if (!extra) {
-					return original(addon, armor, bipedPtr, a4);
+					extra = Extras::Create(actor, biped, armor->formID);
 				}
 
 				RE::BSTSmartPointer<RE::BipedAnim> extraPtr(extra);
 				original(addon, armor, &extraPtr, a4);
 				Extras::MarkUpdated(extra);
+			}
+
+			static bool SlotsFree(RE::BipedAnim* biped, RE::TESObjectARMA* addon)
+			{
+				auto mask = addon ? static_cast<std::uint32_t>(addon->GetSlotMask()) : 0;
+				for (std::uint32_t slot = 0; slot < 32; slot++) {
+					if ((mask & (1u << slot)) && biped->objects[slot].item) {
+						return false;
+					}
+				}
+				return true;
 			}
 
 			static inline decltype(&thunk) original;
@@ -143,35 +152,6 @@ namespace Hooks
 						stale->push_back(extra);
 					}
 				}
-			}
-
-			static void HideCoveredSlots(RE::BipedAnim* main, std::uint32_t covered)
-			{
-				if (!main) {
-					return;
-				}
-				for (std::uint32_t slot = 0; slot < 32; slot++) {
-					if (covered & (1u << slot)) {
-						BipedAnimUnequipObject::original(main, &main->objects[slot], 1, 0, 0);
-						BipedAnimUnequipObject::original(main, &main->bufferedObjects[slot], 1, 0, 0);
-					}
-				}
-			}
-
-			static std::uint32_t CoveredSlots()
-			{
-				std::uint32_t covered = 0;
-				for (auto extra : Extras::Updated()) {
-					for (auto& object : extra->objects) {
-						if (object.addon) {
-							covered |= static_cast<std::uint32_t>(object.addon->GetSlotMask());
-						}
-						if (auto armor = object.item ? object.item->As<RE::TESObjectARMO>() : nullptr) {
-							covered |= static_cast<std::uint32_t>(armor->GetSlotMask());
-						}
-					}
-				}
-				return covered;
 			}
 
 			static bool thunk(RE::Actor* actor)
@@ -204,10 +184,6 @@ namespace Hooks
 				FinishExtras(third.get(), weight, nullptr);
 				FinishExtras(first.get(), weight, nullptr);
 
-				auto covered = CoveredSlots();
-				HideCoveredSlots(third.get(), covered);
-				HideCoveredSlots(first.get(), covered);
-
 				SKSE::NiNodeUpdateEvent event{ actor };
 				SKSE::GetNiNodeUpdateEventSource()->SendEvent(&event);
 				return result;
@@ -224,13 +200,6 @@ namespace Hooks
 					return original(actor, item, count, a4, a5, a6, a7, a8);
 				}
 				std::lock_guard lock(Extras::mutex);
-				auto main = actor->GetBiped1(false).get();
-				if (!main) {
-					return original(actor, item, count, a4, a5, a6, a7, a8);
-				}
-				if (!Extras::Find(main, item->formID)) {
-					Extras::Create(actor, main, item->formID);
-				}
 				SlotConflictBypass bypass;
 				return original(actor, item, count, a4, a5, a6, a7, a8);
 			}
