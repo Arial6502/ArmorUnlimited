@@ -1,5 +1,5 @@
+#include "Extras.h"
 #include "Hooks.h"
-#include "Skee.h"
 
 #include <spdlog/sinks/basic_file_sink.h>
 
@@ -26,8 +26,18 @@ namespace
 	{
 		if (message->type == SKSE::MessagingInterface::kPostPostLoad) {
 			Hooks::Install();
-			Skee::Install();
 		}
+	}
+}
+
+using ExtraPartVisitor = void (*)(void* context, std::uint32_t slot, RE::TESForm* item, RE::TESObjectARMA* addon, RE::NiAVObject* object);
+
+// Lets other plugins reach armor parts that live on extra bipeds. Parts are copied out first so
+// the visitor runs with no ArmorUnlimited lock held and each part stays alive for the whole visit.
+extern "C" __declspec(dllexport) void ArmorUnlimited_VisitExtraParts(RE::BipedAnim* main, ExtraPartVisitor visitor, void* context)
+{
+	for (auto& part : Extras::PartsOf(main)) {
+		visitor(context, part.slot, part.item, part.addon, part.object.get());
 	}
 }
 

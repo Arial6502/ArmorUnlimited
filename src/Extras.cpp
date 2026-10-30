@@ -9,6 +9,9 @@ namespace Extras
 
 		std::map<RE::BipedAnim*, std::map<RE::FormID, RE::BipedAnim*>> byMain;
 		std::map<RE::BipedAnim*, RE::BipedAnim*> owners;
+		// Guards PartsOf against extras being added or removed. Never held across game or plugin calls,
+		// so other plugins can take it while holding their own locks.
+		std::mutex registryLock;
 		std::set<RE::BipedAnim*> equipped;
 		std::set<RE::BipedAnim*> updated;
 
@@ -76,6 +79,28 @@ namespace Extras
 		return result;
 	}
 
+	std::vector<Part> PartsOf(RE::BipedAnim* main)
+	{
+		std::vector<Part> result;
+		std::lock_guard lock(registryLock);
+		auto it = byMain.find(main);
+		if (it == byMain.end()) {
+			return result;
+		}
+		auto collect = [&](RE::BIPOBJECT* objects) {
+			for (std::uint32_t slot = 0; slot < RE::BIPED_OBJECTS::kTotal; slot++) {
+				if (objects[slot].partClone) {
+					result.push_back({ slot, objects[slot].item, objects[slot].addon, objects[slot].partClone });
+				}
+			}
+		};
+		for (auto& [armor, extra] : it->second) {
+			collect(extra->objects);
+			collect(extra->bufferedObjects);
+		}
+		return result;
+	}
+
 	RE::BipedAnim* Create(RE::Actor* actor, RE::BipedAnim* main, RE::FormID armor)
 	{
 		auto extra = static_cast<RE::BipedAnim*>(std::malloc(sizeof(RE::BipedAnim)));
@@ -84,6 +109,7 @@ namespace Extras
 		// Two refs so a game-side smart pointer never drops it to zero and deletes our malloc'd block.
 		extra->IncRef();
 		extra->IncRef();
+		std::lock_guard lock(registryLock);
 		byMain[main][armor] = extra;
 		owners[extra] = main;
 		return extra;
@@ -91,10 +117,13 @@ namespace Extras
 
 	void Destroy(RE::BipedAnim* extra)
 	{
-		if (auto main = OwnerOf(extra)) {
-			std::erase_if(byMain[main], [&](auto& entry) { return entry.second == extra; });
+		{
+			std::lock_guard lock(registryLock);
+			if (auto main = OwnerOf(extra)) {
+				std::erase_if(byMain[main], [&](auto& entry) { return entry.second == extra; });
+			}
+			owners.erase(extra);
 		}
-		owners.erase(extra);
 		equipped.erase(extra);
 		updated.erase(extra);
 		RemoveAllParts(extra);
@@ -107,6 +136,7 @@ namespace Extras
 		for (auto extra : Of(main)) {
 			Destroy(extra);
 		}
+		std::lock_guard lock(registryLock);
 		byMain.erase(main);
 	}
 

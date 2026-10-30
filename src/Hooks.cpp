@@ -154,12 +154,8 @@ namespace Hooks
 				}
 			}
 
-			static bool thunk(RE::Actor* actor)
+			static bool UpdateWithExtras(RE::Actor* actor)
 			{
-				if (!actor || Extras::IsExcluded(actor) || !actor->Is3DLoaded()) {
-					return original(actor);
-				}
-				RE::NiPointer<RE::Actor> hold(actor);
 				std::lock_guard lock(Extras::mutex);
 				RE::BSTSmartPointer<RE::BipedAnim> third = actor->GetBiped1(false);
 				RE::BSTSmartPointer<RE::BipedAnim> first = actor->GetBiped1(true);
@@ -183,7 +179,17 @@ namespace Hooks
 				}
 				FinishExtras(third.get(), weight, nullptr);
 				FinishExtras(first.get(), weight, nullptr);
+				return result;
+			}
 
+			static bool thunk(RE::Actor* actor)
+			{
+				if (!actor || Extras::IsExcluded(actor) || !actor->Is3DLoaded()) {
+					return original(actor);
+				}
+				RE::NiPointer<RE::Actor> hold(actor);
+				auto result = UpdateWithExtras(actor);
+				// Sent unlocked: listeners like SKEE take their own locks and then call back into us.
 				SKSE::NiNodeUpdateEvent event{ actor };
 				SKSE::GetNiNodeUpdateEventSource()->SendEvent(&event);
 				return result;
