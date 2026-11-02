@@ -50,3 +50,28 @@ When using custom preset you can call BuildRelease.bat with an parameter to spec
 `.\BuildRelease.bat ALL-WITH-AUTO-DEPLOYMENT`
 
 When switching between different presets you might need to remove the build folder
+
+## Rework notes
+
+The plugin was rewritten from a single `XSEPlugin.cpp` full of version `#ifdef`s into a few small modules:
+
+- `Offsets.h`: every game address as an Address Library ID. Only Skyrim AE 1.6.1170 is supported.
+- `Extras.h/.cpp`: lifetime of the extra `BipedAnim`s that hold conflicting armor.
+- `Hooks.cpp`: the game hooks.
+- `XSEPlugin.cpp`: plugin entry and the `ArmorUnlimited_VisitExtraParts` export.
+
+Behavior changes:
+
+- The first armor in a slot stays on the actor's normal biped, so the game and other plugins see it. Only conflicting pieces go to an extra biped.
+- Extra bipeds are destroyed together with their main biped instead of leaking with dangling pointers.
+- The 3D update after an unequip runs on the main thread. Running it on Papyrus and AI threads raced the renderer and crashed in effect shader setup.
+- No out-of-bounds reads on NPCs (the player-only field at `Actor+0x8F0`).
+
+SKEE integration:
+
+- skee64.dll is no longer patched. A SKEE build that wants morphs on extra bipeds calls the exported `ArmorUnlimited_VisitExtraParts(biped, visitor, context)` from its biped visitor. Stock SKEE works but doesn't morph extra bipeds.
+
+Known issues:
+
+- NPCs can still only wear one piece per conflicting slot.
+- Hidden collision shapes that FSMP uses can become visible.
