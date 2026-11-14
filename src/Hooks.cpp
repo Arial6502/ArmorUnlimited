@@ -248,12 +248,30 @@ namespace Hooks
 					return original(a1, actor, item, a4, a5);
 				}
 				auto result = original(a1, actor, item, a4, a5);
-				if (actor->Is3DLoaded()) {
-					Update3DModel::thunk(actor);
-				}
+				QueueUpdate3D(actor);
 				return result;
 			}
 
+			// UnequipObject runs on Papyrus and AI threads, but Update3DModel touches scene graph and
+			// effect shader state the renderer reads, so it has to wait for the main thread like vanilla.
+			static void QueueUpdate3D(RE::Actor* actor)
+			{
+				auto handle = actor->GetHandle();
+				if (!pending.insert(handle.native_handle()).second) {
+					return;
+				}
+				SKSE::GetTaskInterface()->AddTask([handle] {
+					{
+						std::lock_guard lock(Extras::mutex);
+						pending.erase(handle.native_handle());
+					}
+					if (auto actor = handle.get(); actor && actor->Is3DLoaded()) {
+						Update3DModel::thunk(actor.get());
+					}
+				});
+			}
+
+			static inline std::set<std::uint32_t> pending;
 			static inline decltype(&thunk) original;
 		};
 	}
