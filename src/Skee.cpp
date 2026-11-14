@@ -5,18 +5,26 @@
 
 #include <Psapi.h>
 
-// SKEE applies body morphs through a function that fetches the actor's biped via GetBiped1.
-// We run that function once per biped (extras first, main last) and redirect GetBiped1 each time.
+// SKEE walks every biped object of an actor through VisitBipeds(actor, std::function), which
+// fetches the biped via GetBiped1. We run it once per biped (extras first, main last) and
+// redirect GetBiped1 each time. The by-value std::function is destroyed by the callee, so that
+// epilogue is NOP'd for every pass but the last.
 namespace Skee
 {
 	namespace
 	{
-		// skee64.dll 0.4.19.16
-		constexpr std::uintptr_t kApplyMorphs = 0xc2950;
+		constexpr std::array<std::uintptr_t, 2> kVisitBipedsCandidates{
+			0xc65a0,  // 0.4.20.0
+			0xc2950,  // 0.4.19.16
+		};
 		constexpr std::uintptr_t kGetBiped1Call = 0x28;
-		constexpr std::uintptr_t kRunOnce = 0xc2ac9;
-		constexpr std::size_t kRunOnceSize = 0x1d;
 		constexpr std::array<std::uint8_t, 6> kGetBiped1CallBytes{ 0xff, 0x90, 0xf0, 0x03, 0x00, 0x00 };
+		constexpr std::uintptr_t kRunOnce = 0x179;
+		constexpr std::size_t kRunOnceSize = 0x1d;
+		constexpr std::array<std::uint8_t, kRunOnceSize> kRunOnceBytes{
+			0x49, 0x8b, 0x4d, 0x38, 0x48, 0x85, 0xc9, 0x74, 0x14, 0x48, 0x8b, 0x01, 0x49, 0x3b, 0xcd,
+			0x0f, 0x95, 0xc2, 0xff, 0x50, 0x20, 0x49, 0xc7, 0x45, 0x38, 0x00, 0x00, 0x00, 0x00
+		};
 
 		using BipedList = std::vector<RE::BSTSmartPointer<RE::BipedAnim>>;
 
@@ -30,7 +38,11 @@ namespace Skee
 
 		thread_local Redirect redirect;
 		std::uintptr_t runOnce = 0;
-		std::array<std::uint8_t, kRunOnceSize> runOnceBytes{};
+
+		bool Matches(std::uintptr_t address, std::span<const std::uint8_t> bytes)
+		{
+			return std::memcmp(reinterpret_cast<void*>(address), bytes.data(), bytes.size()) == 0;
+		}
 
 		const RE::BSTSmartPointer<RE::BipedAnim>* Redirected(RE::TESObjectREFR* ref, bool firstPerson)
 		{
@@ -79,7 +91,7 @@ namespace Skee
 			static inline REL::Relocation<decltype(thunk)> original;
 		};
 
-		struct ApplyMorphs
+		struct VisitBipeds
 		{
 			static void thunk(RE::Actor* actor, void* callback)
 			{
@@ -98,7 +110,7 @@ namespace Skee
 				for (auto i = std::max(redirect.third.size(), redirect.first.size()); i-- > 0;) {
 					redirect.index = i;
 					if (i == 0) {
-						REL::safe_write(runOnce, runOnceBytes.data(), kRunOnceSize);
+						REL::safe_write(runOnce, kRunOnceBytes.data(), kRunOnceSize);
 					}
 					original(actor, callback);
 				}
@@ -123,14 +135,20 @@ namespace Skee
 		MODULEINFO info{};
 		GetModuleInformation(GetCurrentProcess(), handle, &info, sizeof(info));
 		auto base = reinterpret_cast<std::uintptr_t>(info.lpBaseOfDll);
-		if (std::memcmp(reinterpret_cast<void*>(base + kApplyMorphs + kGetBiped1Call), kGetBiped1CallBytes.data(), kGetBiped1CallBytes.size()) != 0) {
-			logger::error("Unsupported skee64.dll version");
+		for (auto offset : kVisitBipedsCandidates) {
+			if (offset + kRunOnce + kRunOnceSize > info.SizeOfImage) {
+				continue;
+			}
+			auto visitBipeds = base + offset;
+			if (!Matches(visitBipeds + kGetBiped1Call, kGetBiped1CallBytes) || !Matches(visitBipeds + kRunOnce, kRunOnceBytes)) {
+				continue;
+			}
+			runOnce = visitBipeds + kRunOnce;
+			if (Detour<VisitBipeds>(visitBipeds, "skee64 VisitBipeds")) {
+				logger::info("skee64.dll hooked at +{:x}", offset);
+			}
 			return;
 		}
-		runOnce = base + kRunOnce;
-		std::memcpy(runOnceBytes.data(), reinterpret_cast<void*>(runOnce), kRunOnceSize);
-		if (Detour<ApplyMorphs>(base + kApplyMorphs, "skee64 ApplyMorphs")) {
-			logger::info("skee64.dll hooked");
-		}
+		logger::error("Unsupported skee64.dll version");
 	}
 }
