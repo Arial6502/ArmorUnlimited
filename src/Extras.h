@@ -21,5 +21,4 @@ namespace Extras
 	void MarkUpdated(RE::BipedAnim* extra);
 	bool IsUpdated(RE::BipedAnim* extra);
 	void ClearUpdated();
-	const std::set<RE::BipedAnim*>& Updated();
 }

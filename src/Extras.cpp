@@ -129,9 +129,4 @@ namespace Extras
 	{
 		updated.clear();
 	}
-
-	const std::set<RE::BipedAnim*>& Updated()
-	{
-		return updated;
-	}
 }
