@@ -65,6 +65,20 @@ namespace Skee
 			static inline decltype(&thunk) original;
 		};
 
+		// NPCs use the shared TESObjectREFR::GetBiped1 through the Character vtable.
+		struct CharacterGetBiped1
+		{
+			static const RE::BSTSmartPointer<RE::BipedAnim>& thunk(RE::Character* character, bool firstPerson)
+			{
+				if (auto biped = Redirected(character, firstPerson)) {
+					return *biped;
+				}
+				return original(character, firstPerson);
+			}
+
+			static inline REL::Relocation<decltype(thunk)> original;
+		};
+
 		struct ApplyMorphs
 		{
 			static void thunk(RE::Actor* actor, void* callback)
@@ -98,6 +112,8 @@ namespace Skee
 	void Install()
 	{
 		Detour<PlayerGetBiped1>(Offsets::PlayerCharacterGetBiped1.address(), "PlayerCharacter::GetBiped1");
+		REL::Relocation<std::uintptr_t> characterVtbl{ RE::VTABLE_Character[0] };
+		CharacterGetBiped1::original = characterVtbl.write_vfunc(0x7E, CharacterGetBiped1::thunk);
 
 		auto handle = GetModuleHandleA("skee64.dll");
 		if (!handle) {
