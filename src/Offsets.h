@@ -13,5 +13,4 @@ namespace Offsets
 	inline constexpr REL::ID AddWornItem{ 38004 };
 	inline constexpr std::ptrdiff_t AddWornItemSlotConflictJump = 0x6b;
 	inline constexpr REL::ID UnequipObject{ 38934 };
-	inline constexpr REL::ID PlayerCharacterGetBiped1{ 40474 };
 }

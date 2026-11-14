@@ -6,12 +6,21 @@ namespace Extras
 {
 	inline std::recursive_mutex mutex;
 
+	struct Part
+	{
+		std::uint32_t slot;
+		RE::TESForm* item;
+		RE::TESObjectARMA* addon;
+		RE::NiPointer<RE::NiAVObject> object;
+	};
+
 	bool IsExcluded(RE::Actor* actor);
 	bool IsHandledArmor(RE::TESForm* form);
 
 	RE::BipedAnim* Find(RE::BipedAnim* main, RE::FormID armor);
 	RE::BipedAnim* OwnerOf(RE::BipedAnim* extra);
 	std::vector<RE::BipedAnim*> Of(RE::BipedAnim* main);
+	std::vector<Part> PartsOf(RE::BipedAnim* main);
 
 	RE::BipedAnim* Create(RE::Actor* actor, RE::BipedAnim* main, RE::FormID armor);
 	void Destroy(RE::BipedAnim* extra);
